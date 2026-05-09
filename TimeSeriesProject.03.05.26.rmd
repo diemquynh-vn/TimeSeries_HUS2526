@@ -1,0 +1,1230 @@
+---
+title: "Time Series Final Project"
+author: "Nhóm 8"
+date: "2026-04-26"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+### Install và import các package cần thiết
+
+```{r}
+#remove.packages("sass")
+#install.packages("sass", type = "binary")
+library(forecast)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+#install.packages("readxl")
+library(readxl)
+```
+
+## 1. Tiền xử lý dữ liệu
+
+### Tổng quan
+
+```{r}
+#remove.packages("sass")
+#install.packages("sass", type = "binary")
+```
+
+```{r}
+data1 = read.csv("D:\\MAT3388\\cleaned_world_co2.csv", header=TRUE)
+tail(data1)
+```
+
+```{r}
+outlier = length(boxplot.stats(data1$co2)$out)
+cat("data1 (dữ liệu chính) :")
+cat("\nSố lượng quan sát và số trường : ", dim(data1))
+cat("\nSố lượng giá trị NA :", sum(is.na(data1)))
+cat("\nSố lượng giá trị ngoại lai: ", outlier, "\n")
+```
+
+```{r}
+sapply(data1, class)
+```
+
+```{r}
+summary(data1$total_co2)
+```
+
+### Xử lý dữ liệu ngoại lai
+
+```{r}
+# dùng log1p(x) = log(1+x) an toàn với giá trị 0 
+boxplot(data1$total_co2, main="Dữ liệu gốc")
+
+data1$total_co2_log = log1p(data1$total_co2)
+boxplot(data1$total_co2_log, main="Dữ liệu sau biến đổi logarit")
+```
+
+### Trực quan hóa
+
+```{r}
+library(ggplot2)
+
+ggplot(data1, aes(x=year, y=total_co2_log)) + 
+  geom_line(color="darkblue", linewidth=1) + 
+  labs(
+    title = "Xu hướng phát thải CO2 toàn cầu (1750-2024)",
+    x = "Năm",
+    y = "Tổng lượng CO2"
+  ) + 
+  theme_minimal()
+```
+
+-   Nhận xét :
+
+    -   Giai đoạn 1750 - 1850 : Xu hướng phát thải CO2 toàn cầu gần như
+        không có biến động đáng kể, lượng phát thải CO2 ở mức rất thấp
+        và tăng chậm. Nền kinh tế trong giai đoạn này chủ yếu dựa vào
+        nông nghiệp và năng lượng sinh khối, trong khi hoạt động công
+        nghiệp còn hạn chế.
+
+    -   Giai đoạn 1850 - 1913 : Lượng phát thải CO2 toàn cầu có dấu hiệu
+        tăng dần. Sự xuất hiện của quá trình công nghiệp hóa ở nhiều
+        quốc gia (Anh, Đức, Mỹ,...) đã làm gia tăng việc sử dụng than đá
+        và nhiên liệu hóa thạch trong sản xuất công nghiệp, làm gia tăng
+        phát thải CO2.
+
+    -   Giai đoạn 1913 - 1950 : Tốc độ phát thải CO2 chững lại và biến
+        động không ổn định do :
+
+        -   Chiến tranh thế giới thứ nhất bùng nổ, hoạt động kinh tế dân
+            sự bị suy giảm.
+
+        -   Chiến tranh thế giới thứ hai bùng nổ, sản xuất quân sự tăng
+            nhưng nhiều nền kinh tế bị gián đoạn nghiêm trọng
+
+    -   Giai đoạn 1950 - 2024 : Lượng phát thải CO2 tăng mạnh và có
+        nhiều biến động đáng chú ý :
+
+        -   Sau khi chiến tranh thế giới kết thúc, các quốc gia tiến vào
+            giai đoạn phục hồi sau chiến tranh, nền công nghiệp toàn cầu
+            bùng nổ dẫn đến lượng phát thải tăng rất nhanh .
+
+        -   1973 - 1980 : Khủng hoảng mỏ toàn cầu làm cho lượng phát
+            thải chậm lại trong ngắn hạn.
+
+        -   Quá trình toàn cầu hóa và mở rộng công nghiệp tại các nền
+            kinh tế đang phát triển thúc đẩy phát thải tăng nhanh.
+
+        -   Đại dịch COVID-19 làm phát thải giảm nhẹ do giãn cách xã
+            hội, giảm vận tải và sản xuất.
+
+        -   2021 : Phát thải phục hồi và tiếp tục tăng khi nền kinh tế
+            toàn cầu mở cửa trở lại.
+
+### Phân tích cấu trúc chuỗi thời gian
+
+#### Ước lượng xu hướng
+
+```{r}
+co2_log_ts = ts(data1$total_co2_log, start = min(data1$year), frequency = 1)
+```
+
+```{r}
+# Vì dữ liệu theo năm (freq = 1) không có tính mùa vụ
+# Để thấy được xu hướng rõ nhất, ta dùng phương pháp Trung bình trượt (Moving Average)
+library(forecast)
+
+co2_trend_log <- ma(co2_log_ts, order = 10)
+plot(co2_log_ts, 
+     main = "Ước lượng thành phần xu hướng dài hạn",
+     ylab = "log1p(Tổng CO2)", 
+     xlab = "Năm", 
+     col = "darkblue", lwd = 2)
+lines(co2_trend_log, col = "red", lwd = 2, lty = 2)
+legend("topleft",
+       legend = c("Chuỗi gốc", "Xu hướng MA(10)"),
+       col = c("darkblue", "red"),
+       lwd = c(2, 2),
+       lty = c(1, 2))
+```
+
+#### Kiểm định tính dừng
+
+```{r}
+library(tseries)
+
+adf.test(co2_log_ts)
+```
+
+-   Kiểm định giả thiết :
+
+    -   H0 : Chuỗi không dừng
+
+    -   H1 : Chuỗi dừng
+
+    -   Do p-value = 0.99 \> 0.05 nên chưa đủ điều kiện bác bỏ H0
+
+    -   Kết luận : Đây là chuỗi không dừng
+
+```{r}
+adf.test(diff(co2_log_ts))
+```
+
+-   Kiểm định giả thiết :
+
+    -   H0 : Chuỗi không dừng
+
+    -   H1 : Chuỗi dừng
+
+    -   Do p-value = 0.01 \< 0.05 nên bác bỏ H0
+
+    -   Kết luận : Chuỗi sau khi sai phân là chuỗi dừng
+
+#### Phân tích tự tương quan
+
+```{r}
+acf(diff(co2_log_ts))
+pacf(diff(co2_log_ts))
+```
+
+## Mô hình không gian trạng thái
+
+### Local Linear Trend
+
+-   Do dữ liệu $CO_2$ là không tuyến tính nên mô hình không gian trạng
+    thái được sử dụng là SSMtrend(k), với k = 2. (CO2 năm nay = năm
+    trước + tốc độ tăng hiện tại)
+
+-   Dùng SSMtrend(2) vì: Từ đồ thị, tốc độ tăng của CO2 không cố định.
+    Có giai đoạn tăng chậm, có giai đoạn tăng nhanh, slope thay đổi theo
+    lịch sử công nghiệp.
+
+```{r}
+#install.packages("KFAS")
+library(KFAS)
+```
+
+```{r}
+n = length(co2_log_ts)
+train_size = floor(0.8*n)
+
+train_ts = window(co2_log_ts, end=time(co2_log_ts)[train_size])
+test_ts = window(co2_log_ts, start=time(co2_log_ts)[train_size+1])
+
+start(train_ts)
+end(train_ts)
+start(test_ts)
+end(test_ts)
+```
+
+```{r}
+# chấp nhận sai số quan sát là 5% phương sai của dữ liệu
+h_fixed = var(train_ts) * 0.05
+ssmodel = SSModel(train_ts ~ SSMtrend(degree=2, Q=list(0,NA)), H=h_fixed)
+fit = fitSSM(ssmodel, inits=c(log(var(train_ts))))
+kfs = KFS(fit$model)
+
+# lấy ra xu hướng 
+trend1 = kfs$alphahat[,1]
+plot(train_ts, lwd=2, col="orange", main="Observed vs Trend")
+lines(trend1+0.05, lwd=2, lty=2, col="blue")
+legend("topleft", legend=c("Observed","Trend"), col=c("orange","blue"), lwd=c(2,2), lty=c(1,2))
+```
+
+-   Đường xu hướng ước lượng gần như trùng với dữ liệu quan sát, cho
+    thấy mô hình trạng thái đã mô tả tốt biến động dài hạn của chuỗi
+    CO2. Điều này phản ánh dữ liệu có xu hướng mạnh và ít nhiễu ngắn
+    hạn.
+
+```{r}
+test_size = length(test_ts)
+ssm_pred = predict(fit$model, n.ahead=test_size, interval="confidence")
+ssm_pred = ssm_pred[,1]
+
+(data.frame(Year=as.vector(time(test_ts)), CO2_pred=as.vector(ssm_pred)))
+```
+
+```{r}
+# kiểm tra phần dư 
+ssm_res = residuals(kfs, type = "recursive")
+acf(ssm_res, main = "ACF Residuals")
+Box.test(ssm_res, lag = 10, type = "Ljung")
+```
+
+```{r}
+# kiểm tra sự hội tụ của mô hình 
+fit$optim.out$convergence 
+```
+
+```{r}
+# fit : kết quả sau khi chạy fitSSM() 
+# optim.out : kết quả từ quá trình tối ưu hóa 
+# par : tham số 
+
+fit$optim.out$par
+```
+
+```{r}
+loglik = logLik(fit$model)
+k = length(fit$optim.out$par)  # số tham số ước lượng
+k
+AIC_value = -2 * loglik + 2 * k
+AIC_value
+```
+
+```{r}
+ssm_mse <- mean((test_ts - ssm_pred)^2)
+ssm_rmse = sqrt(ssm_mse)
+ssm_rmse 
+
+ssm_mae = mean(abs(test_ts - ssm_pred))
+ssm_mae
+```
+
+# 2. Ứng dụng các mô hình chuỗi thời gian ARIMA,Holt
+
+### Chia tập dữ liệu
+
+```{r}
+n = length(co2_log_ts)
+train_size = floor(0.8*n)
+
+train_ts = window(co2_log_ts, end=time(co2_log_ts)[train_size])
+test_ts = window(co2_log_ts, start=time(co2_log_ts)[train_size+1])
+
+start(train_ts)
+end(train_ts)
+start(test_ts)
+end(test_ts)
+
+h_steps <- length(test_ts)
+```
+
+### Huấn luyệnn theo mô hình Holt
+
+```{r}
+library(forecast)
+
+# Huấn luyện mô hình Holt 
+# (Giả sử train_ts là dữ liệu huấn luyện và h_steps là số bước dự báo)
+holt_model <- holt(train_ts, h = h_steps)
+
+# Vẽ biểu đồ chẩn đoán phần dư tự động cho mô hình Holt
+checkresiduals(holt_model)
+```
+
+```{r}
+# Xem các chỉ số đánh giá sai số (RMSE, MAE, MAPE,...) của mô hình
+print("Độ chính xác (Accuracy) của mô hình Holt ---")
+accuracy(holt_model, test_ts)
+```
+
+### Huấn luyện theo mô hình ARIMA
+
+```{r}
+# Huấn luyện mô hình ARIMA (Tìm kiếm lưới toàn diện)
+arima_model <- auto.arima(train_ts, stepwise = FALSE, approximation = FALSE)
+summary(arima_model)
+```
+
+### Kiểm định phần dư ARIMA (White Noise & ARCH)
+
+```{r}
+# install.packages("FinTS")
+
+# Kiểm định phần dư ARIMA (White Noise & ARCH)
+# Kiểm tra tự tương quan phần dư
+checkresiduals(arima_model)
+
+# Kiểm tra phương sai thay đổi (ARCH-LM Test)
+library(FinTS)
+arima_res <- residuals(arima_model)
+ArchTest(arima_res)
+```
+
+-   Kiểm định Ljung-Box :
+
+    -   H0 : Phần dư không có tự tương quan
+
+    -   p-value = 0.4721 \> 0.05 nên không bác bỏ H0
+
+    -   Kết luận : Phần dư là nhiễu trắng, mô hình đã loại bỏ tốt tự
+        tương quan
+
+-   Kiểm định ARCH-LM :
+
+    -   H0 : Không có hiệu ứng ARCH (phương sai không đổi)
+
+    -   p-value = 0.5243 \> 0.05 nên không bác bỏ H0
+
+    -   Kết luận : Không có hiện tượng phương sai thay đổi, phương sai
+        phần dư ổn định
+
+-   Kết luận chung :
+
+    -   Cả hai kiểm định đều có p-value \> 0.05
+
+    -   Mô hình thỏa mãn các giả định quan trọng
+
+    -   ARIMA(1,1,0) with drift là mô hình phù hợp và đáng tin cậy
+
+### Đánh giá và so sánh trên tập Test
+
+```{r}
+# Đánh giá và so sánh trên tập Test
+arima_forecast <- forecast(arima_model, h = h_steps)
+
+stats_holt <- accuracy(holt_model, test_ts)
+stats_arima <- accuracy(arima_forecast, test_ts)
+
+# In chi tiết để xem MAPE
+print("CHỈ SỐ MÔ HÌNH HOLT ---")
+print(stats_holt)
+print("CHỈ SỐ MÔ HÌNH ARIMA ---")
+print(stats_arima)
+
+# Bảng tổng hợp
+evaluation_table <- data.frame(
+  Model = c("Holt Linear Trend", "ARIMA"),
+  RMSE_Test = c(stats_holt[2, "RMSE"], stats_arima[2, "RMSE"]),
+  MAE_Test = c(stats_holt[2, "MAE"], stats_arima[2, "MAE"]),
+  MAPE_Test = c(stats_holt[2, "MAPE"], stats_arima[2, "MAPE"])
+)
+print(evaluation_table)
+```
+
+-   Nhận xét so sánh hiệu suất dự báo :
+
+    -   Dựa trên tập kiểm thử, mô hình ARIMA cho hiệu suất dự báo tốt
+        hơn so với mô hình Holt Linear Trend
+
+-   Về các chỉ số sai số tuyệt đối :
+
+    -   RMSE và MAE của ARIMA lần lượt là 0.4127 và 0.3412
+
+    -   Thấp hơn so với Holt (0.4771 và 0.3939)
+
+    -   Cho thấy ARIMA có sai số dự báo nhỏ hơn
+
+-   Về sai lệch tương đối (MAPE) :
+
+    -   Cả hai mô hình đều có MAPE thấp, chứng tỏ dự báo tốt
+
+    -   ARIMA đạt 1.41%, thấp hơn Holt (1.63%)
+
+    -   Do đó ARIMA có độ chính xác cao hơn
+
+-   Kết luận và lựa chọn mô hình :
+
+    -   ARIMA(1,1,0) with drift là mô hình tốt nhất
+
+    -   Phù hợp để mô phỏng và dự báo nồng độ CO2 toàn cầu
+
+### Trực quan hóa kết quả
+
+```{r}
+# Trực quan hóa kết quả (Zoom vào giai đoạn 1990 - 2024)
+autoplot(train_ts) +
+  autolayer(arima_forecast$mean, series = "Dự báo ARIMA", size = 1) +
+  autolayer(holt_model$mean, series = "Dự báo Holt", size = 1) +
+  autolayer(test_ts, series = "Thực tế (Test)", size = 1) +
+  scale_color_manual(values = c("Dự báo ARIMA" = "red", 
+                                "Dự báo Holt" = "blue", 
+                                "Thực tế (Test)" = "black")) +
+  coord_cartesian(xlim = c(1990, 2021)) + 
+  labs(title = "So sánh hiệu suất dự báo ARIMA vs Holt (1990-2024)",
+       y = "Log1p(Tổng lượng CO2)", 
+       x = "Năm",
+       color = "Mô hình:") + 
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+-   Nhận xét từ biểu đồ dự báo :
+
+    -   Cả hai mô hình ARIMA và Holt đều bám theo xu hướng tăng của dữ
+        liệu
+
+    -   Tuy nhiên, trong giai đoạn kiểm thử, cả hai đều có xu hướng dự
+        báo cao hơn giá trị thực tế
+
+    -   Nguyên nhân có thể do dữ liệu thực tế tăng chậm lại so với giai
+        đoạn huấn luyện
+
+-   So sánh mức độ bám sát :
+
+    -   Đường dự báo của ARIMA nằm gần đường thực tế hơn so với Holt
+
+    -   Khoảng cách sai lệch của ARIMA nhỏ và ổn định hơn
+
+-   Đối chiếu với chỉ số sai số :
+
+    -   Kết quả trực quan phù hợp với MAPE (ARIMA: 1.41% \< Holt: 1.63%)
+
+    -   Xác nhận ARIMA có độ chính xác cao hơn
+
+-   Kết luận :
+
+    -   Mô hình ARIMA(1,1,0) with drift là phù hợp và ổn định hơn
+
+    -   Có khả năng dự báo tốt nhất cho dữ liệu phát thải CO2
+
+# 3. Dự đoán bằng các mô hình học máy
+
+### Chuẩn bị dữ liệu toàn cầu (gốc và log)
+
+```{r}
+library(dplyr)
+library(lubridate)
+```
+
+#### Tạo bộ dữ liệu có biến trễ cho ML
+
+Dựa trên ACF/PACF ở phần 1, sai phân bậc 1 và các độ trễ quan trọng là 1
+=\> dùng 3–5 độ trễ để mô hình có thêm thông tin.\
+Tạo `lag1`, `lag2`, `lag3` (của chuỗi log), lấy từ năm 1753 trở đi để
+tránh NA.
+
+```{r}
+library(zoo)
+
+global_co2 = read.csv("D:\\MAT3388\\cleaned_world_co2.csv", header=TRUE)
+head(global_co2)
+
+global_co2 <- global_co2 %>%
+  mutate(
+    total_co2_log = log1p(total_co2),
+    lag1 = lag(total_co2_log, 1),
+    lag2 = lag(total_co2_log, 2),
+    lag3 = lag(total_co2_log, 3)
+  ) %>%
+  filter(!is.na(lag3))  # từ 1753 trở đi
+```
+
+```{r}
+sum(is.na(global_co2))
+```
+
+#### Chia tập train / test
+
+```{r}
+test_years <- 1970:2024
+train <- global_co2 %>% filter(!year %in% test_years)
+test  <- global_co2 %>% filter(year %in% test_years)
+
+# Biến mục tiêu (target) là tổng CO2 log
+target <- "total_co2_log"
+```
+
+Sử dụng biến total_co2_log làm biến mục tiêu để dự đoán cho các mô hình
+học máy giúp giảm lệch phải, giảm overfitting tại các vùng giá trị lớn
+và xử lý dữ liệu xu hướng tăng theo hàm mũ.
+
+### Mô hình Hồi quy tuyến tính
+
+```{r}
+lmfit <- lm(total_co2_log ~ lag1 + lag2 + lag3, data = train)
+summary(lmfit)
+```
+
+-   Lag1 (hệ số 0.825) p-value \< 0.05 =\> Biến lag1 có ý nghĩa thống kê
+    mạnh. Điều này cho thấy lượng CO2 năm nay phụ thuộc rất lớn vào
+    lượng CO2 năm trước - đúng với chuỗi có xu hướng tăng.
+
+-   Lag2 (hệ số 0.169) p-value \> 0.05 một chút, cho thấy biến lag2 có
+    ảnh hưởng nhẹ đến biến mục tiêu.
+
+-   Lag3 (hệ số 0.006) p-value \> 0.05 =\> cho thấy biến lag3 không có ý
+    nghĩa thống kê trong mô hình.
+
+```{r}
+lmfit <- lm(total_co2_log ~ lag1 + lag2, data = train)
+summary(lmfit)
+```
+
+Sau khi loại bỏ biến lag3 ra khỏi mô hình, mô hình được xây dựng dựa
+trên biến lag1 và lag2 đề có R^2^ và R^2^ hiệu chỉnh bằng 0.9994 rất cao
+cho thấy mô hình giải thích được 99.94% phương sai của chuỗi
+total_co2_log. Biến mục tiêu là một tổng tích lũy có xu hướng mạnh nên
+các mô hình chuỗi thời gian tự hồi quy trên dữ liệu chưa sai phân thường
+có R^2^ cao vì năm nay sẽ phụ thuộc nhiều vào năm trước.
+
+#### Kiểm định phần dư:
+
+```{r}
+shapiro.test(lmfit$residuals)
+```
+
+Xét bài toán có giả thuyết H0 là phần dư tuân theo phân phối chuẩn
+
+Do p-value \< 0.05 nên có đủ cơ sở để bác bỏ H0 =\> có thể nói phần dư
+không tuân theo phân phối chuẩn.
+
+```{r}
+wilcox.test(lmfit$residuals)
+```
+
+Xét bài toán có giả thuyết H0 là phần dư có giá trị trung bình bằng 0
+
+Do p-value \> 0.05 nên chưa đủ cơ sở để bác bỏ H0 =\> có thể nói phần dư
+có giá trị trung bình bằng 0.
+
+#### Dự báo trên tập test
+
+```{r}
+lm_pred = predict(lmfit, newdata = test)
+(data.frame(lm_pred, test$total_co2_log))
+```
+
+```{r}
+lm_mse = mean((lm_pred - test$total_co2_log)^2)
+lm_mse
+lm_rmse = sqrt(lm_mse)
+lm_rmse
+lm_mae = mean(abs(lm_pred - test$total_co2_log))
+lm_mae
+```
+
+Sai số trung bình thấp \~ 7.38, khoảng 7 đơn vị CO2. Tuy vậy vẫn tồn tại
+sai số lớn tại các điểm có biến động bất thường, cho thấy mô hình hồi
+quy tuyến tính gặp hạn chế trong việc nắm bắt các điểm biến động bất
+thường khi chỉ sử dụng các biến trễ (lag features).
+
+### Các mô hình học máy nâng cao: Random Forest và XGBoost
+
+```{r}
+install.packages("randomForest")
+install.packages("xgboost")
+library(randomForest)
+```
+
+#### Random Forest
+
+Tuning bằng Grid Search với Cross-Validation
+
+```{r}
+set.seed(42)
+
+rf_grid = expand.grid(
+  ntree = c(100, 300, 500, 800),
+  mtry = c(1, 2, 3),             # số biến được chọn tại mỗi node
+  nodesize = c(3, 5, 10, 15)     # kích thước node tối thiểu
+
+)
+
+# Vì tập dữ liệu nhỏ, dùng k-fold CV
+n_folds = 5
+fold_ids = sample(rep(1:n_folds, length.out = nrow(train))) # 5 folds trên tập train
+rf_cv_results = data.frame()
+
+for (i in 1:nrow(rf_grid)) {
+  nt = rf_grid$ntree[i]
+  mt = rf_grid$mtry[i]
+  ns = rf_grid$nodesize[i]
+
+  fold_errors = numeric(n_folds)
+
+  for (f in 1:n_folds) {
+    cv_train = train %>% filter(fold_ids != f)
+    cv_val   = train %>% filter(fold_ids == f)
+
+    rf_temp = randomForest(
+      total_co2_log ~ lag1 + lag2 + lag3,
+      data = cv_train,
+      ntree = nt,
+      mtry = mt,
+      nodesize = ns
+    )
+
+    cv_pred = predict(rf_temp, newdata = cv_val)
+    fold_errors[f] = mean((cv_pred - cv_val$total_co2_log)^2)
+  }
+
+  rf_cv_results = rbind(rf_cv_results, data.frame(
+    ntree = nt,
+    mtry = mt,
+    nodesize = ns,
+    cv_mse = mean(fold_errors),
+    cv_rmse = sqrt(mean(fold_errors))
+  ))
+}
+
+best_rf_idx = which.min(rf_cv_results$cv_rmse)
+best_rf_params = rf_cv_results[best_rf_idx, ]
+
+cat("Best Random Forest parameters:\n")
+print(best_rf_params)
+```
+
+=\> KẾT LUẬN: Sử dụng bộ tham số [ntree = 300, mtry = 3, nodesize = 3]
+
+```{r}
+set.seed(42)
+# Huấn luyện mô hình Random Forest cuối cùng
+rf_final = randomForest(
+  total_co2_log ~ lag1 + lag2 + lag3,
+  data = train,
+  ntree = 300,
+  mtry = 3,
+  nodesize = 3,
+  importance = TRUE
+)
+
+# Độ quan trọng của biến
+cat("Variable Importance (Random Forest):\n")
+print(importance(rf_final))
+```
+
+```{r}
+# Dự báo trên tập test
+rf_pred = predict(rf_final, newdata = test)
+head(rf_pred, 10)
+rf_mse = mean((rf_pred - test$total_co2_log)^2)
+rf_rmse = sqrt(rf_mse)
+rf_rmse
+rf_mae = mean(abs(rf_pred - test$total_co2_log))
+rf_mae
+```
+
+### XGBoost
+
+```{r}
+library(xgboost)
+features = c("lag1", "lag2", "lag3")
+X_train = as.matrix(train[, features])
+X_test = as.matrix(test[, features])
+y_train = train[[target]]
+
+dtrain = xgb.DMatrix(data = X_train, label = y_train)
+
+xgb_grid = expand.grid(
+  nrounds = c(100, 200),
+  max_depth = c(3, 5),
+  eta = c(0.05, 0.1),
+  gamma = 0,
+  subsample = c(0.8, 1.0),
+  colsample_bytree = c(0.8, 1.0),
+  min_child_weight = c(3, 5)
+)
+
+set.seed(42)
+
+rmse_list = c()
+
+for (i in 1:nrow(xgb_grid)) {
+  nrounds = xgb_grid$nrounds[i]
+  max_depth = xgb_grid$max_depth[i]
+  eta = xgb_grid$eta[i]
+  gamma = xgb_grid$gamma[i]
+  subsample = xgb_grid$subsample[i]
+  colsample_bytree = xgb_grid$colsample_bytree[i]
+  min_child_weight = xgb_grid$min_child_weight[i]
+  
+  params = list(
+    objective = "reg:squarederror",
+    max_depth = max_depth,
+    eta = eta,
+    gamma = gamma,
+    subsample = subsample,
+    colsample_bytree = colsample_bytree,
+    min_child_weight = min_child_weight
+  )
+  
+  cv_result = xgb.cv(
+    params = params,
+    data = dtrain,
+    nfold = 5,
+    nrounds = nrounds,
+    verbose = 0,
+    early_stopping_rounds = 20
+  )
+  
+  # RMSE tốt nhất từ cv
+  rmse_list[i] = min(cv_result$evaluation_log$test_rmse_mean)
+}
+
+best_xgb_idx = which.min(rmse_list)
+best_xgb_rmse = rmse_list[best_xgb_idx]
+best_xgb_param = xgb_grid[best_xgb_idx, ]
+```
+
+```{r}
+cat("Best XGBoost parameters:\n")
+print(best_xgb_param)
+
+cat("Best XGBoost RMSE:\n")
+print(best_xgb_rmse)
+```
+
+Theo phương pháp k-fold cv, mô hình XGBoost tối ưu nhất tìm được có các
+tham số:
+
+```         
+Best XGBoost parameters: 
+nrounds = 200, max_depth = 3, eta = 0.05, gamma = 0, subsample = 0.8, colsample_bytree = 1, min_child_weight = 3
+```
+
+```{r}
+set.seed(42)
+params <- list(
+  objective = "reg:squarederror",
+  max_depth = 3,
+  eta = 0.1,
+  gamma = 0,
+  subsample = 0.8,
+  colsample_bytree = 1,
+  min_child_weight = 3
+)
+
+xgb_final <- xgb.train(
+  params = params,
+  data = dtrain,
+  nrounds = 200,
+  verbose = 0
+)
+```
+
+```{r}
+cat("Variable Importance (XGBoost):\n")
+print(xgb.importance(model = xgb_final))
+```
+
+Biến lag1 đóng góp rất nhiều trong việc dự đoán của mô hình; trong khi 2
+biến lag2, lag3 đóng góp rất ít.
+
+```{r}
+# Dự báo trên tập test
+y_test = test$total_co2_log
+dtest = xgb.DMatrix(data = X_test, label = y_test)
+xgb_pred = predict(xgb_final, newdata = dtest)
+head(xgb_pred, 10)
+xgb_mse = mean((xgb_pred - y_test)^2)
+xgb_rmse = sqrt(xgb_mse)
+xgb_rmse
+xgb_mae = mean(abs(xgb_pred - y_test))
+xgb_mae
+```
+
+Có thể thấy từ kết quả, mô hình Random Forest và XGBoost bị overfitting
+khi RMSE gấp trên tập test gấp 10 lần so với trên tập train. Do hạn chế
+về khả năng ngoại suy dữ liệu nên 2 mô hình tree-based này đều đưa ra
+một giá trị duy nhất cho dự đoán trên tập test.
+
+=\> Cải tiến bằng dự báo trên sai phân (mô hình học trên sự thay đổi) và
+time series cross-validation (không bị lộ thông tin).
+
+```{r}
+#=CẢI TIẾN RF & XGBOOST: Differencing + Time-CV + Auto-Params
+library(randomForest)
+library(xgboost)
+library(dplyr)
+```
+
+```{r}
+# 1. CHUẨN BỊ DỮ LIỆU SAI PHÂN (Khắc phục lỗi không thể ngoại suy)
+df_diff <- global_co2 %>%
+  mutate(
+    diff_log = c(NA, diff(total_co2_log)),      # Bậc 1
+    lag_d1 = lag(diff_log, 1),                  # Lag của sai phân
+    lag_d2 = lag(diff_log, 2)
+  ) %>% filter(!is.na(lag_d2))                  # Giữ hàng đầy đủ
+
+test_years <- 1970:2024
+train_d <- df_diff %>% filter(!year %in% test_years)
+test_d  <- df_diff %>% filter(year %in% test_years)
+last_train_log <- tail(train_d$total_co2_log, 1) # Điểm neo để cộng dồn ngược
+```
+
+```{r}
+# TUNING RF VỚI TIME-ORDERED CV
+set.seed(42)
+rf_grid <- expand.grid(ntree = c(100, 300), mtry = c(1, 2), nodesize = c(3, 5))
+rf_cv_res <- data.frame()
+
+n <- nrow(train_d)
+cv_train_end <- floor(n * 0.8) # Train 80% đầu, Val 20% sau (đúng thứ tự thời gian)
+cv_tr <- train_d[1:cv_train_end, ]
+cv_vl <- train_d[(cv_train_end + 1):n, ]
+
+for(i in 1:nrow(rf_grid)) {
+  mdl <- randomForest(diff_log ~ lag_d1 + lag_d2, data = cv_tr,
+                      ntree = rf_grid$ntree[i], mtry = rf_grid$mtry[i], nodesize = rf_grid$nodesize[i])
+  p <- predict(mdl, cv_vl)
+  rf_cv_res <- rbind(rf_cv_res, cbind(rf_grid[i,], cv_rmse = sqrt(mean((p - cv_vl$diff_log)^2))))
+}
+best_rf <- rf_cv_res[which.min(rf_cv_res$cv_rmse), ]
+
+# Huấn luyện RF final với best_params tự động
+rf_final_diff <- randomForest(diff_log ~ lag_d1 + lag_d2, data = train_d,
+                              ntree = best_rf$ntree, mtry = best_rf$mtry, nodesize = best_rf$nodesize)
+```
+
+```{r}
+# TUNING XGBOOST VỚI MONOTONE CONSTRAINTS
+xgb_grid <- expand.grid(nrounds = c(100, 200), max_depth = c(3, 5), 
+                        eta = c(0.05, 0.1), min_child_weight = c(3, 5))
+xgb_cv_res <- data.frame()
+X_tr <- as.matrix(cv_tr[, c("lag_d1", "lag_d2")])
+y_tr <- cv_tr$diff_log
+dtrain_cv <- xgb.DMatrix(data = X_tr, label = y_tr)
+
+for(i in 1:nrow(xgb_grid)) {
+  params <- list(objective = "reg:squarederror", max_depth = xgb_grid$max_depth[i], 
+                 eta = xgb_grid$eta[i], min_child_weight = xgb_grid$min_child_weight[i],
+                 monotone_constraints = c(1, 1)) # Ép đồng biến với quá khứ
+  cv <- xgb.cv(params = params, data = dtrain_cv, nfold = 3, nrounds = xgb_grid$nrounds[i], verbose = 0)
+  xgb_cv_res <- rbind(xgb_cv_res, cbind(xgb_grid[i,], cv_rmse = min(cv$evaluation_log$test_rmse_mean)))
+}
+best_xgb <- xgb_cv_res[which.min(xgb_cv_res$cv_rmse), ]
+
+# Huấn luyện XGB final
+dtrain_final <- xgb.DMatrix(
+  data = as.matrix(train_d[, c("lag_d1", "lag_d2")]), 
+  label = train_d$diff_log)
+xgb_final_diff <- xgb.train(
+  list(
+    objective = "reg:squarederror", 
+    max_depth = best_xgb$max_depth, 
+    eta = best_xgb$eta, 
+    min_child_weight = best_xgb$min_child_weight,
+    monotone_constraints = c(1, 1)
+    ),
+  data = dtrain_final, 
+  nrounds = best_xgb$nrounds, 
+  verbose = 0)
+```
+
+```{r}
+# ĐÁNH GIÁ TRÊN TẬP TEST (Cộng dồn ngược sai phân)
+test_X <- as.matrix(test_d[, c("lag_d1", "lag_d2")])
+rf_diff_pred  <- predict(rf_final_diff, test_d)
+xgb_diff_pred <- predict(xgb_final_diff, xgb.DMatrix(data = test_X))
+
+# Khôi phục về log scale: log_t = log_(t-1) + diff_t
+rf_pred  <- cumsum(rf_diff_pred) + last_train_log # rf_log_pred
+head(rf_pred, 10)
+xgb_pred <- cumsum(xgb_diff_pred) + last_train_log # xgb_log_pred
+head(xgb_pred, 10)
+
+rf_rmse  <- sqrt(mean((rf_pred - test_d$total_co2_log)^2))
+xgb_rmse <- sqrt(mean((xgb_pred - test_d$total_co2_log)^2))
+
+cat("Random Forest RMSE :", round(rf_rmse, 4), "\n")
+cat("XGBoost RMSE:", round(xgb_rmse, 4), "\n")
+```
+
+Sau khi cải tiến RMSE của XGBoost đã cải thiện, từ 0.7 -\> 0.4. Tuy RMSE
+sau khi cải tiến Random Forest không tốt hơn tuy nhiên 2 mô hình này
+không còn dự đoán ra một giá trị duy nhất nữa.
+
+### Tổng hợp và so sánh tất cả các mô hình
+
+#### Các mô hình học máy:
+
+```{r}
+(data.frame(true_vals = test$total_co2_log, lm_pred = lm_pred, rf_pred = rf_pred, xgb_pred = xgb_pred))
+```
+
+```{r}
+# Biểu đồ dự báo với thực tế
+results_df <- data.frame(
+  year   = test$year,
+  actual = y_test,
+  LR     = lm_pred,
+  RF     = rf_pred,
+  XGB    = xgb_pred
+)
+ 
+# Reshape để vẽ
+library(tidyr)
+results_long <- results_df %>%
+  pivot_longer(cols = c(actual, LR, RF, XGB),
+               names_to = "Model", values_to = "value")
+ 
+ggplot(results_long, aes(x = year, y = value, color = Model, linetype = Model)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  scale_linetype_manual(values = c("actual" = "solid", "LR" = "dashed",
+                                    "RF" = "dotdash", "XGB" = "dotted")) +
+  labs(title = "Dự báo vs Thực tế (2017-2024)",
+       x = "Năm", y = "Total CO2 (log scale)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+Mô hình Random Forest và XGBoost bị overfitting khi RMSE và MAE trên tập
+test lớn hơn khá nhiều trên tập train, cho thấy mô hình tree-based không
+có khả năng dự đoán tốt đối với dữ liệu tuyến tính.
+
+Mô hình hồi quy tuyến tính bám khá sát dữ liệu thực tế và nắm bắt được
+xu hướng tăng dài hạn của phát thải CO2. Điều này cho thấy rằng với các
+chuỗi thời gian có xu hướng tuyến tính mạnh và cấu trúc đơn giản, các mô
+hình truyền thống có thể vượt trội hơn so với các mô hình học máy phức
+tạp.
+
+#### Tất cả các mô hình:
+
+```{r}
+
+# TỔNG HỢP & SO SÁNH CHỈ SỐ SAI SỐ (RMSE, MAE) CỦA TẤT CẢ MÔ HÌNH
+library(dplyr)
+
+# 1. Lấy chỉ số trên tập Test từ kết quả accuracy() của Holt & ARIMA
+rmse_holt  <- stats_holt[2, "RMSE"]
+mae_holt   <- stats_holt[2, "MAE"]
+rmse_arima <- stats_arima[2, "RMSE"]
+mae_arima  <- stats_arima[2, "MAE"]
+
+# 2. Tạo bảng tổng hợp
+comparison <- data.frame(
+  Model = c("Linear Regression", "Random Forest", "XGBoost", "Holt Linear Trend", "ARIMA", "Local Linear Trend"),
+  RMSE  = round(c(lm_rmse, rf_rmse, xgb_rmse, rmse_holt, rmse_arima, ssm_rmse), 4),
+  MAE   = round(c(lm_mae, rf_mae, xgb_mae, mae_holt, mae_arima, ssm_mae), 4)
+)
+
+# 3. Sắp xếp theo RMSE từ thấp đến cao (mô hình tốt nhất nằm trên cùng)
+comparison <- comparison %>% arrange(RMSE)
+
+# 4. In kết quả
+print(comparison, row.names = FALSE)
+cat("\n")
+
+champion <- comparison$Model[1]
+cat("MÔ HÌNH TỐT NHẤT THEO RMSE:", champion, "\n")
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(comparison, aes(x = reorder(Model, RMSE), y = RMSE, fill = Model)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = round(RMSE, 2)), vjust = -0.3, size = 4) +
+  labs(title = "So sánh RMSE các mô hình", x = "Mô hình", y = "RMSE") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+### Dự báo lượng CO2 toàn cầu trong tương lai (2025 - 2030)
+
+```{r}
+# DỰ BÁO TƯƠNG LAI: KẾT HỢP LR + HOLT + ARIMA (2025-2030)
+# Vẽ trên cùng 1 biểu đồ - Dữ liệu lịch sử từ 2000
+library(forecast)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+```
+
+```{r}
+# PHẦN 1: Dự báo bằng Linear Regression
+
+# Lấy dữ liệu cuối cùng để bắt đầu dự báo
+last_data <- tail(global_co2, 1)
+known_values <- global_co2$total_co2_log
+known_years  <- global_co2$year
+
+# Hàm dự báo cho mô hình LR 
+forecast_future_lr <- function(target_years, known_vals, known_yrs) {
+  vals <- known_vals
+  yrs  <- known_yrs
+  
+  for (yr in (max(yrs) + 1):max(target_years)) {
+    n <- length(vals)
+    new_data <- data.frame(
+      lag1 = vals[n],
+      lag2 = vals[n - 1]
+    )
+    pred <- predict(lmfit, newdata = new_data)
+    vals <- c(vals, pred)
+    yrs  <- c(yrs, yr)
+  }
+  
+  result <- data.frame(year = yrs, total_co2_log = vals)
+  result <- result %>% filter(year %in% target_years)
+  result$total_co2_estimated <- expm1(result$total_co2_log)
+  return(result)
+}
+
+# Dự báo LR từ 2025 đến 2030
+all_future_years <- 2025:2030
+fc_lr_full <- forecast_future_lr(all_future_years, known_values, known_years)
+
+```
+
+```{r}
+# PHẦN 2: Dự báo bằng Holt và ARIMA (train lại trên full data)
+
+# Chuỗi time series đầy đủ 
+full_ts <- co2_log_ts  
+
+# Holt Linear Trend - dự báo 9 năm
+holt_future <- holt(full_ts, h = 6)
+
+# ARIMA - tìm mô hình tối ưu và dự báo 6 năm
+arima_full <- auto.arima(full_ts, stepwise = FALSE, approximation = FALSE)
+arima_future <- forecast(arima_full, h = 6)
+```
+
+```{r}
+# PHẦN 3: Dự báo bằng Local Linear Trend
+
+n_future = length(all_future_years)
+ssmodel_full <- SSModel(full_ts ~ SSMtrend(degree=2, Q=list(0,NA)), H=var(full_ts)*0.05)
+fit_full <- fitSSM(ssmodel_full, inits=c(log(var(full_ts))))
+ssm_fc <- predict(fit_full$model, n.ahead = n_future, interval="prediction")
+```
+
+```{r}
+# PHẦN 4: Dự báo bằng Random Forest và XGBoost (Đệ quy trên sai phân)
+fc_steps <- 6
+rf_fc_log <- xgb_fc_log <- numeric(fc_steps)
+
+# RF Forecast
+cur_log <- tail(df_diff$total_co2_log, 1)
+cur_d1  <- tail(df_diff$diff_log, 1)
+cur_d2  <- tail(df_diff$diff_log, 2)[1]
+for(i in 1:fc_steps) {
+  nd <- data.frame(lag_d1 = cur_d1, lag_d2 = cur_d2)
+  pred_d <- as.numeric(predict(rf_final_diff, nd))
+  rf_fc_log[i] <- cur_log + pred_d
+  cur_d2 <- cur_d1; cur_d1 <- pred_d; cur_log <- rf_fc_log[i]
+}
+
+# XGBoost Forecast
+cur_log <- tail(df_diff$total_co2_log, 1)
+cur_d1  <- tail(df_diff$diff_log, 1)
+cur_d2  <- tail(df_diff$diff_log, 2)[1]
+for(i in 1:fc_steps) {
+  nd <- data.frame(lag_d1 = cur_d1, lag_d2 = cur_d2)
+  pred_d <- as.numeric(predict(xgb_final_diff, xgb.DMatrix(data = as.matrix(nd))))
+  xgb_fc_log[i] <- cur_log + pred_d
+  cur_d2 <- cur_d1; cur_d1 <- pred_d; cur_log <- xgb_fc_log[i]
+}
+```
+
+```{r}
+# PHẦN 5: Tạo bảng tổng hợp dự báo cho tất cả mô hình
+
+forecast_comparison <- data.frame(
+  Year       = all_future_years,
+  LR_log     = round(fc_lr_full$total_co2_log, 2),
+  Holt_log   = round(as.numeric(holt_future$mean), 2),
+  ARIMA_log  = round(as.numeric(arima_future$mean), 2),
+  SSM_log = round(as.numeric(ssm_fc[,1]), 2),
+  RF_log   = round(rf_fc_log, 2),
+  XGB_log  = round(xgb_fc_log, 2),
+  LR_CO2     = round(expm1(fc_lr_full$total_co2_log), 0),
+  Holt_CO2   = round(expm1(as.numeric(holt_future$mean)), 0),
+  ARIMA_CO2  = round(expm1(as.numeric(arima_future$mean)), 0),
+  SSM_CO2  = round(expm1(as.numeric(ssm_fc[,1])), 0),
+  RF_CO2   = round(expm1(rf_fc_log), 0),
+  XGB_CO2  = round(expm1(xgb_fc_log), 0)
+)
+
+cat("\n=== BẢNG DỰ BÁO CO2 TOÀN CẦU (2025 - 2030) ===\n")
+print(forecast_comparison, row.names = FALSE)
+```
+
+```{r}
+# PHẦN 6: Chuẩn bị dữ liệu vẽ - CHỈ LẤY LỊCH SỬ TỪ 2000
+
+# Dữ liệu lịch sử: 2000 - 2025
+hist_data_2000 <- global_co2 %>%
+  filter(year >= 2000, year <= 2024) %>%
+  select(year, total_co2_log)
+
+# Ghép tất cả: lịch sử + 3 mô hình dự báo
+plot_data <- bind_rows(
+  # Dữ liệu thực tế
+  hist_data_2000 %>% mutate(Model = "Thực tế"),
+  
+  # Dự báo LR
+  fc_lr_full %>% 
+    select(year, total_co2_log) %>% 
+    mutate(Model = "LR Forecast"),
+  
+  # Dự báo Holt
+  data.frame(year = all_future_years, 
+             total_co2_log = as.numeric(holt_future$mean), 
+             Model = "Holt Forecast"),
+  
+  # Dự báo ARIMA
+  data.frame(year = all_future_years, 
+             total_co2_log = as.numeric(arima_future$mean), 
+             Model = "ARIMA Forecast"),
+  
+  # Dự báo SSM
+  data.frame(year = all_future_years, 
+             total_co2_log = as.numeric(ssm_fc[,1]), 
+             Model = "SSM Forecast"),
+  
+  # Dự báo RF
+  data.frame(year = all_future_years, 
+             total_co2_log = as.numeric(rf_fc_log), 
+             Model = "RF Forecast"),
+  
+  # Dự báo XGB
+  data.frame(year = all_future_years, 
+             total_co2_log = as.numeric(xgb_fc_log), 
+             Model = "XGB Forecast"),
+)
+```
+
+```{r}
+# PHẦN 7: Vẽ biểu đồ kết hợp
+
+ggplot(plot_data, aes(x = year, y = total_co2_log, 
+                      color = Model, linetype = Model)) +
+  
+  # Đường và điểm dữ liệu
+  geom_line(size = 1.1) +
+  geom_point(size = 1.5, alpha = 0.7) +
+  
+  # Đường phân cách giữa thực tế và dự báo
+  geom_vline(xintercept = 2024.5, linetype = "dashed", 
+             color = "gray50", size = 0.8) +
+  annotate("text", x = 2024.5, y = min(plot_data$total_co2_log) + 0.25,
+           label = "│\nDự báo", hjust = 1.1, vjust = 1, 
+           color = "gray40", fontface = "italic", size = 3.2) +
+  
+  # Màu sắc cho từng mô hình
+  scale_color_manual(values = c(
+    "Thực tế"        = "black",
+    "LR Forecast"    = "steelblue",
+    "Holt Forecast"  = "forestgreen", 
+    "ARIMA Forecast" = "firebrick",
+    "SSM Forecast" = "purple",
+    "RF Forecast" = "darkblue",
+    "XGB Forecast" = "orange"
+  )) +
+  
+  # Kiểu đường cho từng mô hình
+  scale_linetype_manual(values = c(
+    "Thực tế"        = "solid",
+    "LR Forecast"    = "dashed",
+    "Holt Forecast"  = "dotdash",
+    "ARIMA Forecast" = "dotted",
+    "SSM Forecast" = "twodash",
+    "RF Forecast"    = "dashed",
+    "XGB Forecast"  = "dotdash"
+  )) +
+  
+  # Labels và tiêu đề
+  labs(title = "Dự báo CO2 toàn cầu đến năm 2030",
+       subtitle = "So sánh 4 mô hình: Linear Regression, Holt Linear Trend, ARIMA, Local Linear Trend",
+       caption = "Dữ liệu lịch sử: 2000-2024 | Dự báo: 2025-2030",
+       x = "Năm", 
+       y = "Log1p(Tổng lượng CO2)", 
+       color = "Mô hình", 
+       linetype = "Mô hình") +
+  
+  # Trục X chỉ lấy từ 2000 để tập trung vào giai đoạn quan trọng
+  coord_cartesian(xlim = c(2000, 2030)) +
+  scale_x_continuous(breaks = seq(2000, 2030, by = 5)) +
+  
+  # Theme
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+        plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 10),
+        plot.caption = element_text(hjust = 0.5, color = "gray50", size = 8),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"),
+        panel.grid.minor = element_blank())
+```
